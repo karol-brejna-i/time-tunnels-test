@@ -45,7 +45,7 @@ public class TimeTunnelsExtension {
 
     /**
      * Return a version number at runtime.
-     * @return
+     * @return a string representing version number
      */
     @GET
     @Path("/version")
@@ -54,7 +54,7 @@ public class TimeTunnelsExtension {
         // XXX Doesn't work
         String iv = getClass().getPackage().getImplementationVersion();
         getClass().getPackage().getImplementationTitle();
-        String manual = "0.04.00-SNAPSHOT";
+        String manual = "0.11.00-SNAPSHOT";
         String result = String.format("manual: %s, implementationVersion: %s", manual, iv);
         return result;
     }
@@ -85,38 +85,74 @@ public class TimeTunnelsExtension {
     }
 
     @GET
-    @Path("from/{startingNodetype}/{symbol}")
+    @Path("from/{startingNodeType}/{symbol}")
     @Produces(MediaType.APPLICATION_JSON)
     public Collection<Map<String, Object>> findTunnels(
-            @PathParam("startingNodetype") String startingNodetype,
+            @PathParam("startingNodeType") String startingNodeType,
             @PathParam("symbol") String symbol
     ) {
-        log.info(String.format("findTunnels from %s, symbol=%s", startingNodetype, symbol));
-        Collection<Map<String, Object>> result = null;
+        log.info(String.format("findTunnels from %s, symbol=%s", startingNodeType, symbol));
+        Collection<Map<String, Object>> result;
 
 
         try (Transaction tx = graphDatabaseService.beginTx()) {
-            result = findTunnelsFor(startingNodetype, symbol);
+            result = findTunnelsFor(startingNodeType, symbol);
             return result;
         }
     }
 
     /**
+     * Check traversal time for every ms/agent.
+     * @param startingNodeType a type of nodes for wich time tunnels are found (ms/agent).
+     * @return a collection of (symbol, time, count) objects. symbol: starting node, time: execution time, count: number of paths found.
+     */
+    @GET
+    @Path("measure/{startingNodetype}")
+    @Produces({MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN})
+    public Collection<Map<String, Object>> measure(
+            @PathParam("startingNodetype") String startingNodeType) {
+        log.warn(String.format("measure traversal from %s", startingNodeType));
+
+        Collection<Map<String, Object>> result = new ArrayList<>();
+
+        ResourceIterable<Node> startingNodes;
+        try (Transaction tx = graphDatabaseService.beginTx()) {
+            // find all nodes of given type
+            startingNodes = this.getStartingNodes(startingNodeType, null);
+
+            for (Node startingNode : startingNodes) {
+                String symbol = (String) startingNode.getProperty("symbol");
+                log.warn(String.format("measuring tunnel finding for %s", symbol));
+                long startTime = System.currentTimeMillis();
+
+                Collection<Map<String, Object>> paths = findTunnelsFor(startingNodeType, symbol);
+                long endTime = System.currentTimeMillis();
+
+                Map<String, Object> one = new HashMap<>();
+                one.put("symbol", symbol);
+                one.put("time", endTime - startTime);
+                one.put("count", paths.size());
+                result.add(one);
+            }
+
+        } catch (Exception e) {
+            log.error("Error:" + e);
+        }
+        return result;
+    }
+
+
+    /**
      * Finds time tunnels for given srtating node type and its symbol (id).
-     * @param startingNodeType
-     * @param symbol
-     * @return
+     * @param startingNodeType a type of nodes for wich time tunnels are found (ms/agent).
+     * @param symbol identifier of starting node
+     * @return returns (symbol, labels, from, to) objects for each tunnel found
      */
     private Collection<Map<String, Object>> findTunnelsFor(String startingNodeType, String symbol) {
         log.info(String.format("findTunnelsFor %s %s", startingNodeType, symbol));
 
         Collection<Map<String, Object>> result;
         long startTime = System.currentTimeMillis();
-        // determine starting node label (based on invocation url)
-        Label label = MS_LABEL;
-        if ("agent".equalsIgnoreCase(startingNodeType)) {
-            label = AGENT_LABEL;
-        }
 
         // determine traverser (based on invocation url)
         TraversalDescription td = this.getTraversalDescriptionForMs();
@@ -125,7 +161,7 @@ public class TimeTunnelsExtension {
         }
 
         // find starting node(s)
-        ResourceIterable<Node> startingNodes = this.getStartingNodes(label, symbol);
+        ResourceIterable<Node> startingNodes = this.getStartingNodes(startingNodeType, symbol);
         long startingNodesTime = System.currentTimeMillis();
         log.debug("after find starting nodes in " + (startingNodesTime - startTime));
 
@@ -166,23 +202,36 @@ public class TimeTunnelsExtension {
 
             result.add(map);
 
-            log.info(org.neo4j.graphdb.traversal.Paths.defaultPathToString(path));
+            //log.debug(org.neo4j.graphdb.traversal.Paths.defaultPathToString(path));
         }
 
         return result;
     }
 
     /**
-     * Find starting node for the traversal
-     * @param label type of the node to find
+     * Find starting node for the traversal.
+     * If the symbol is provided, it looks for nodes of given tyle (label) andy symbol.
+     * @param startingNodeType type of the node to find
      * @param symbol identity of the node
      * @return nodes matching the search criteria
      */
-    private ResourceIterable<Node> getStartingNodes(Label label, String symbol) {
+    private ResourceIterable<Node> getStartingNodes(String startingNodeType, String symbol) {
+        // determine starting node label
+        Label label = MS_LABEL;
+        if ("agent".equalsIgnoreCase(startingNodeType)) {
+            label = AGENT_LABEL;
+        }
+
         ResourceIterable<Node> startingNodes;
-        startingNodes = graphDatabaseService.findNodesByLabelAndProperty(
-                label, IDENTITY_PROPERTY, symbol
-        );
+        if (symbol != null && symbol.length() > 0) {
+            startingNodes = graphDatabaseService.findNodesByLabelAndProperty(
+                    label, IDENTITY_PROPERTY, symbol
+            );
+        } else {
+            GlobalGraphOperations ggo = GlobalGraphOperations.at(graphDatabaseService);
+            startingNodes = ggo.getAllNodesWithLabel(label);
+        }
+
         return startingNodes;
     }
 
