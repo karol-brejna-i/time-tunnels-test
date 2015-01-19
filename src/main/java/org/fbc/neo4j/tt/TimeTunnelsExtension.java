@@ -42,6 +42,9 @@ public class TimeTunnelsExtension {
     private static TraversalDescription timeTunnelTraversalForMs = null;
     private static TraversalDescription timeTunnelTraversalForAgent = null;
 
+    // XXX debug
+    private static boolean doReturnPath = true;
+
 
     /**
      * Return a version number at runtime.
@@ -54,7 +57,7 @@ public class TimeTunnelsExtension {
         // XXX Doesn't work
         String iv = getClass().getPackage().getImplementationVersion();
         getClass().getPackage().getImplementationTitle();
-        String manual = "0.11.00-SNAPSHOT";
+        String manual = "0.15.00-SNAPSHOT";
         String result = String.format("manual: %s, implementationVersion: %s", manual, iv);
         return result;
     }
@@ -200,9 +203,11 @@ public class TimeTunnelsExtension {
             map.put(FROM_PROPERTY_NAME, interval.getStart().toDateTime().toString(DATE_PATTERN));
             map.put(TO_PROPERTY_NAME, interval.getEnd().toDateTime().toString(DATE_PATTERN));
 
-            result.add(map);
 
-            //log.debug(org.neo4j.graphdb.traversal.Paths.defaultPathToString(path));
+            if (doReturnPath) {
+                map.put("path", org.neo4j.graphdb.traversal.Paths.defaultPathToString(path));
+            }
+            result.add(map);
         }
 
         return result;
@@ -237,8 +242,8 @@ public class TimeTunnelsExtension {
 
     /**
      * Holds logic of reading the node labels.
-     * @param node
-     * @return
+     * @param node a node to read the labels from
+     * @return list of node's label names
      */
     private List<String> getLabels(Node node) {
         List<String> result = new ArrayList<>();
@@ -250,7 +255,7 @@ public class TimeTunnelsExtension {
 
     /**
      * Generate traversal description (if not already generated) for searching time tunnels starting from MS.
-     * @return
+     * @return traversal description for (ms:MS)<-[r0:HAS_MANAGER]-(a1:AGENT)-[r1:SUPERIOR*0..]->(a2:AGENT)-[:WORKER*0..1]->(w:WORKER)
      */
     private TraversalDescription getTraversalDescriptionForMs() {
         if (timeTunnelTraversalForMs == null) {
@@ -275,7 +280,7 @@ public class TimeTunnelsExtension {
 
     /**
      * Generate traversal description (if not already generated) for searching time tunnels starting from AGENT.
-     * @return
+     * @return traversal description for (a1:AGENT)-[r1:SUPERIOR*0..]->(a2:AGENT)-[:WORKER*0..1]->(w:WORKER)
      */
     private TraversalDescription getTraversalDescriptionForAgent() {
         if (timeTunnelTraversalForAgent == null) {
